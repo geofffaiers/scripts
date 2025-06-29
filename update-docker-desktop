@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# update-docker-desktop - Update Docker Desktop on Linux
+# This script checks the installed version of Docker Desktop, compares it with the latest available version,
+# and updates it if a newer version is available. It also restarts Docker Desktop after the update.
+# Author: Geoff Faiers
+# Version: 1.0
+
+set -e
+
+APP_NAME="Docker Desktop"
+DESKTOP_CMD="systemctl --user restart docker-desktop"
+
+# Get the currently installed version (from dpkg, stripping build)
+get_current_version() {
+    dpkg-query -W -f='${Version}' docker-desktop 2>/dev/null | cut -d'-' -f1 || echo "0.0.0"
+}
+
+# Get the latest version from Docker's update XML
+get_latest_version() {
+    curl -s https://desktop.docker.com/linux/main/amd64/appcast.xml \
+        | grep -oPm1 "(?<=sparkle:shortVersionString=\")[^\"]+"
+}
+
+# Get the actual .deb download URL
+get_latest_url() {
+    curl -s https://desktop.docker.com/linux/main/amd64/appcast.xml \
+        | grep -oPm1 "(?<=url=\")[^\"]+"
+}
+
+# Version comparison: returns true if $1 > $2
+version_gt() {
+    [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" != "$1" ]
+}
+
+main() {
+    echo "[INFO] Checking $APP_NAME version..."
+
+    CURRENT_VERSION=$(get_current_version)
+    LATEST_VERSION=$(get_latest_version)
+
+    echo "[INFO] Current version: $CURRENT_VERSION"
+    echo "[INFO] Latest version: $LATEST_VERSION"
+
+    if version_gt "$LATEST_VERSION" "$CURRENT_VERSION"; then
+        echo "[INFO] Updating to $LATEST_VERSION..."
+
+        TEMP_DEB="/tmp/docker-desktop-latest.deb"
+        DOWNLOAD_URL=$(get_latest_url)
+
+        echo "[INFO] Downloading from: $DOWNLOAD_URL"
+        wget -q -O "$TEMP_DEB" "$DOWNLOAD_URL"
+
+        echo "[INFO] Installing update..."
+        sudo apt install -y "$TEMP_DEB"
+        rm "$TEMP_DEB"
+
+        echo "[INFO] Docker Desktop updated to $LATEST_VERSION."
+    else
+        echo "[INFO] Docker Desktop is already up to date."
+    fi
+
+    echo "[INFO] Starting Docker Desktop..."
+    $DESKTOP_CMD
+}
+
+main
